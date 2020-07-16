@@ -38,9 +38,6 @@ contract LendOffer is Ownable {
   // The timestamp of last repayment date.
   uint public lastRepaymentDate;
 
-  // Description of the credit.
-  bytes32 public description;
-
   // Active state of the credit.
   bool public active = true;
 
@@ -63,8 +60,7 @@ contract LendOffer is Ownable {
     address _offeredAsset,
     uint _offeredAmount,
     uint _interest,
-    uint _returnDate, 
-    bytes32 _description
+    uint _returnDate
   ) public {
 
     /** Set the lender of the contract to the tx.origin
@@ -87,9 +83,6 @@ contract LendOffer is Ownable {
       */
     returnAmount = offeredAmount.add(interest);
 
-    // Set the credit description.
-    description = _description;
-
     // Set the initialization date.
     createDate = block.timestamp;
 
@@ -97,7 +90,7 @@ contract LendOffer is Ownable {
     emit LogLendOfferInitialized(lender, block.timestamp);
   }
 
-  function getInfo() public view returns (address, address, uint, uint, uint, uint, uint, uint, bytes32, bool) {
+  function getInfo() public view returns (address, address, uint, uint, uint, uint, uint, uint, bool) {
     return (
       lender,
       offeredAsset,
@@ -107,7 +100,6 @@ contract LendOffer is Ownable {
       interest,
       createDate,
       returnDate,
-      description,
       active
     );
   }
