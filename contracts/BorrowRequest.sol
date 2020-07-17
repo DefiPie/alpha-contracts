@@ -2,6 +2,7 @@ pragma solidity ^0.6.0;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /** @title BorrowRequest contract.
   * Inherits the Ownable contracts.
@@ -69,12 +70,23 @@ contract BorrowRequest is Ownable {
   */
   event LogBorrowRequestInitialized(address indexed _address, uint indexed timestamp);  
   event LogBorrowRequestSetCollateral(address indexed _address, uint indexed timestamp);
+  event LogLenderInvestment(address indexed _address, uint indexed _amount, uint indexed timestamp);
 
   /** @dev Modifiers
   *
   */
   modifier isPendingCollateral() {
-      require(state == State.pendingCollateral);
+      require(state == State.pendingCollateral, "Only for pending collateral");
+      _;
+  }
+
+  modifier isPendingLends() {
+      require(state == State.pendingLends, "Only for pending lends");
+      _;
+  }
+
+  modifier isNotReturnDate() {
+      require(returnDate > block.timestamp, "Return date is less than current date");
       _;
   }
 
@@ -86,6 +98,7 @@ contract BorrowRequest is Ownable {
     uint _interest,
     uint _returnDate
   ) public {
+    require(_returnDate > block.timestamp, "Return date is less than current date");
 
     /** Set the borrower of the contract to the tx.origin
       * We are using tx.origin, because the contract is going to be published
@@ -134,6 +147,36 @@ contract BorrowRequest is Ownable {
       returnDate,
       active
     );
+  }
+
+  function lend(uint amount) public isPendingLends isNotReturnDate {
+    require(amount <= requestedAmount, "The amount is more than requested");
+
+    IERC20 requestedToken = IERC20(requestedAsset);
+
+    uint balance = requestedToken.balanceOf(address(this));
+    
+    require(balance <= requestedAmount, "The balance is already more than requested");
+
+    uint rest = requestedAmount.sub(balance);
+
+    if (rest < amount) {
+      amount = rest;
+    }
+
+    require(requestedToken.allowance(msg.sender, address(this)) >= amount, "Missing allowance");
+
+    require(requestedToken.transferFrom(msg.sender, address(this), amount), "The requested asset is not transferred");
+
+    if (balance.add(amount) >= requestedAmount) {
+      state = State.repayment;
+    }
+
+    lenders[msg.sender] = true;
+    lendersCount++;
+    lendersInvestedAmount[msg.sender] = lendersInvestedAmount[msg.sender].add(amount);
+
+    LogLenderInvestment(msg.sender, amount, block.timestamp);
   }
 
 }
