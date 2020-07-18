@@ -70,24 +70,46 @@ contract BorrowRequest is Ownable {
   */
   event LogBorrowRequestInitialized(address indexed _address, uint indexed timestamp);  
   event LogBorrowRequestSetCollateral(address indexed _address, uint indexed timestamp);
+  event LogCreditStateChanged(State indexed state, uint indexed timestamp);
   event LogLenderInvestment(address indexed _address, uint indexed _amount, uint indexed timestamp);
+  event LogBorrowerWithdrawal(address indexed _address, uint indexed _amount, uint indexed timestamp);
 
   /** @dev Modifiers
   *
   */
   modifier isPendingCollateral() {
-      require(state == State.pendingCollateral, "Only for pending collateral");
-      _;
+    require(state == State.pendingCollateral, "Only for pending collateral");
+    _;
+  }
+
+  modifier isSetCollateral() {
+    require(state != State.pendingCollateral, "Only for pending collateral");
+    _;
   }
 
   modifier isPendingLends() {
-      require(state == State.pendingLends, "Only for pending lends");
-      _;
+    require(state == State.pendingLends, "Only for pending lends");
+    _;
   }
 
   modifier isNotReturnDate() {
-      require(returnDate > block.timestamp, "Return date is less than current date");
-      _;
+    require(returnDate > block.timestamp, "Return date is less than current date");
+    _;
+  }
+
+  modifier isActive() {
+    require(active == true);
+    _;
+  }
+
+  modifier onlyBorrower() {
+    require(msg.sender == borrower);
+    _;
+  }
+
+  modifier canWithdraw() {
+    require(getBalance() >= requestedAmount);
+    _;
   }
 
 
@@ -133,7 +155,13 @@ contract BorrowRequest is Ownable {
       emit LogBorrowRequestSetCollateral(tx.origin, block.timestamp);
   }
 
-  function getInfo() public view returns (address, address, uint, address, uint, uint, uint, uint, uint, uint, bool) {
+  function getBalance() public view isSetCollateral returns(uint) {
+    IERC20 requestedToken = IERC20(requestedAsset);
+
+    return requestedToken.balanceOf(address(this));
+  }
+
+  function getInfo() public view returns (address, address, uint, address, uint, uint, uint, uint, uint, uint, bool, State, uint) {
     return (
       borrower,
       collateralAsset,
@@ -145,7 +173,9 @@ contract BorrowRequest is Ownable {
       interest,
       createDate,
       returnDate,
-      active
+      active,
+      state,
+      getBalance()
     );
   }
 
@@ -154,7 +184,7 @@ contract BorrowRequest is Ownable {
 
     IERC20 requestedToken = IERC20(requestedAsset);
 
-    uint balance = requestedToken.balanceOf(address(this));
+    uint balance = getBalance();
     
     require(balance <= requestedAmount, "The balance is already more than requested");
 
@@ -178,5 +208,30 @@ contract BorrowRequest is Ownable {
 
     LogLenderInvestment(msg.sender, amount, block.timestamp);
   }
+
+  /** @dev Withdraw function.
+      * It can only be executed while contract is in active state.
+      * It is only accessible to the borrower.
+      * It is only accessible if the needed amount is gathered in the contract.
+      * It can only be executed once.
+      * Transfers the gathered amount to the borrower.
+      */
+    function withdraw() public isActive onlyBorrower canWithdraw {
+        // Set the state to repayment so we can avoid reentrancy.
+        state = State.repayment;
+
+        uint balance = getBalance();
+
+        // Log state change.
+        LogCreditStateChanged(state, block.timestamp);
+
+        // Log borrower withdrawal.
+        LogBorrowerWithdrawal(msg.sender, balance, block.timestamp);
+
+        IERC20 requestedToken = IERC20(requestedAsset);
+
+        // Transfer the gathered amount to the credit borrower.
+        requestedToken.transfer(borrower, balance);
+    }
 
 }
