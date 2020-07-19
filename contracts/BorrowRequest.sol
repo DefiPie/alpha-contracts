@@ -50,10 +50,11 @@ contract BorrowRequest is Ownable {
   /** Stages that every credit contract gets trough.
     *   pendingCollateral - Collateral not paid
     *   pendingLends - During this state lends are allowed.
-    *   repayment - During this stage only repayments are allowed.    
+    *   repayment - During this stage only repayments are allowed. Borrower return asset to the contract.  
+    *   interestReturns - This stage gives investors opportunity to request their returns. 
     *   finished - This is the stage when the contract is finished its purpose.    
   */
-  enum State { pendingCollateral, pendingLends, repayment, finished }
+  enum State { pendingCollateral, pendingLends, repayment, interestReturns, finished }
   State state;
 
   // Storing the lenders for this credit.
@@ -70,9 +71,12 @@ contract BorrowRequest is Ownable {
   */
   event LogBorrowRequestInitialized(address indexed _address, uint indexed timestamp);  
   event LogBorrowRequestSetCollateral(address indexed _address, uint indexed timestamp);
-  event LogCreditStateChanged(State indexed state, uint indexed timestamp);
+  event LogBorrowRequestStateChanged(State indexed state, uint indexed timestamp);
+  event LogBorrowRequestStateActiveChanged(bool indexed active, uint indexed timestamp);
   event LogLenderInvestment(address indexed _address, uint indexed _amount, uint indexed timestamp);
   event LogBorrowerWithdrawal(address indexed _address, uint indexed _amount, uint indexed timestamp);
+  event LogBorrowerRepayment(address indexed _address, uint indexed _amount, uint indexed timestamp);
+  event LogLenderWithdrawal(address indexed _address, uint indexed _amount, uint indexed timestamp);
 
   /** @dev Modifiers
   *
@@ -112,6 +116,22 @@ contract BorrowRequest is Ownable {
     _;
   }
 
+  modifier canRepay() {
+    require(state == State.repayment);
+    _;
+  }
+
+  modifier onlyLender() {
+    require(lenders[msg.sender] == true);
+    _;
+  }
+
+  modifier canAskForInterest() {
+    require(state == State.interestReturns);
+    require(lendersInvestedAmount[msg.sender] > 0);
+    _;
+  }
+
 
   // @dev Constructor
   constructor(
@@ -148,11 +168,11 @@ contract BorrowRequest is Ownable {
   }
 
   function setCollateral(address _collateralAsset, uint _collateralAmount) public isPendingCollateral onlyOwner {
-      collateralAsset = _collateralAsset;
-      collateralAmount = _collateralAmount;
-      state = State.pendingLends;
+    collateralAsset = _collateralAsset;
+    collateralAmount = _collateralAmount;
+    state = State.pendingLends;
 
-      emit LogBorrowRequestSetCollateral(tx.origin, block.timestamp);
+    emit LogBorrowRequestSetCollateral(tx.origin, block.timestamp);
   }
 
   function getBalance() public view isSetCollateral returns(uint) {
@@ -179,7 +199,7 @@ contract BorrowRequest is Ownable {
     );
   }
 
-  function lend(uint amount) public isPendingLends isNotReturnDate {
+  function lend(uint amount) public onlyOwner isPendingLends isNotReturnDate returns (bool) {
     require(amount <= requestedAmount, "The amount is more than requested");
 
     IERC20 requestedToken = IERC20(requestedAsset);
@@ -194,44 +214,109 @@ contract BorrowRequest is Ownable {
       amount = rest;
     }
 
-    require(requestedToken.allowance(msg.sender, address(this)) >= amount, "Missing allowance");
+    require(requestedToken.allowance(tx.origin, address(this)) >= amount, "Missing allowance");
 
-    require(requestedToken.transferFrom(msg.sender, address(this), amount), "The requested asset is not transferred");
+    require(requestedToken.transferFrom(tx.origin, address(this), amount), "The requested asset is not transferred");
 
     if (balance.add(amount) >= requestedAmount) {
       state = State.repayment;
     }
 
-    lenders[msg.sender] = true;
+    lenders[tx.origin] = true;
     lendersCount++;
-    lendersInvestedAmount[msg.sender] = lendersInvestedAmount[msg.sender].add(amount);
+    lendersInvestedAmount[tx.origin] = lendersInvestedAmount[tx.origin].add(amount);
 
-    LogLenderInvestment(msg.sender, amount, block.timestamp);
+    LogLenderInvestment(tx.origin, amount, block.timestamp);
+
+    return true;
   }
 
   /** @dev Withdraw function.
-      * It can only be executed while contract is in active state.
-      * It is only accessible to the borrower.
-      * It is only accessible if the needed amount is gathered in the contract.
-      * It can only be executed once.
-      * Transfers the gathered amount to the borrower.
-      */
-    function withdraw() public isActive onlyBorrower canWithdraw {
-        // Set the state to repayment so we can avoid reentrancy.
-        state = State.repayment;
+    * It can only be executed while contract is in active state.
+    * It is only accessible to the borrower.
+    * It is only accessible if the needed amount is gathered in the contract.
+    * It can only be executed once.
+    * Transfers the gathered amount to the borrower.
+    */
+  function withdraw() public isActive onlyBorrower canWithdraw {
+    // Set the state to repayment so we can avoid reentrancy.
+    state = State.repayment;
 
-        uint balance = getBalance();
+    uint balance = getBalance();
+
+    // Log state change.
+    LogBorrowRequestStateChanged(state, block.timestamp);
+
+    // Log borrower withdrawal.
+    LogBorrowerWithdrawal(msg.sender, balance, block.timestamp);
+
+    IERC20 requestedToken = IERC20(requestedAsset);
+
+    // Transfer the gathered amount to the credit borrower.
+    requestedToken.transfer(borrower, balance);
+  }
+
+  /** @dev Repayment function.
+    * Allows borrower to make repayment to the contract.
+    */
+  function repay() public onlyBorrower canRepay payable {
+    IERC20 requestedToken = IERC20(requestedAsset);
+
+    require(requestedToken.allowance(msg.sender, address(this)) >= returnAmount, "Missing allowance");
+
+    require(requestedToken.transferFrom(msg.sender, address(this), returnAmount), "The requested asset is not transferred");
+
+    IERC20 collateralToken = IERC20(collateralAsset);
+
+    collateralToken.transfer(borrower, collateralAmount);
+
+    // Log borrower installment received.
+    LogBorrowerRepayment(msg.sender, returnAmount, block.timestamp);
+
+    // Set the credit state to "returning interests".
+    state = State.interestReturns;
+  }
+
+  /** @dev Request interest function.
+    * It can only be executed while contract is in active state.
+    * It is only accessible to lenders.
+    * It is only accessible if lender funded 1 or more wei.
+    * It can only be executed once.
+    * Transfers the lended amount + interest to the lender.
+    */
+  function requestInterest() public isActive onlyLender canAskForInterest {
+
+    // Calculate the amount to be returned to lender.
+    uint lenderReturnAmount = lendersInvestedAmount[msg.sender].mul(interest.div(requestedAmount.div(100)).add(100)).div(100);
+
+    uint balance = getBalance();
+
+    // Assert the contract has enough balance to pay the lender.
+    assert(balance >= lenderReturnAmount);
+
+    // Transfer the return amount with interest to the lender.
+    IERC20 requestedToken = IERC20(requestedAsset);
+
+    require(requestedToken.transfer(msg.sender, lenderReturnAmount), "The requested asset is not transferred");
+
+    // Log the transfer to lender.
+    LogLenderWithdrawal(msg.sender, lenderReturnAmount, block.timestamp);
+
+    // Check if the contract balance is drawned.
+    if (balance.sub(lenderReturnAmount) == 0) {
+
+        // Set the active state to false.
+        active = false;
+
+        // Log active state change.
+        LogBorrowRequestStateActiveChanged(active, block.timestamp);
+
+        // Set the contract stage to expired e.g. its lifespan is over.
+        state = State.finished;
 
         // Log state change.
-        LogCreditStateChanged(state, block.timestamp);
-
-        // Log borrower withdrawal.
-        LogBorrowerWithdrawal(msg.sender, balance, block.timestamp);
-
-        IERC20 requestedToken = IERC20(requestedAsset);
-
-        // Transfer the gathered amount to the credit borrower.
-        requestedToken.transfer(borrower, balance);
+        LogBorrowRequestStateChanged(state, block.timestamp);
     }
+  }
 
 }

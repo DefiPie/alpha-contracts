@@ -20,6 +20,8 @@ contract PeerToPeerLending is Ownable {
     struct User {        
       address[] borrowRequests;
       address[] lendOffers;
+      address[] borrowRequestsLender;
+      address[] lendOffersBorrower;
     }
 
     // We store all users in a mapping.
@@ -137,5 +139,17 @@ contract PeerToPeerLending is Ownable {
       */
     function getUserLendOffers() public view returns (address[] memory) {
       return users[msg.sender].lendOffers;
+    }
+
+    function lendToBorrowRequest(address _borrowRequest, uint amount) public {
+      BorrowRequest borrowRequest = BorrowRequest(_borrowRequest);
+
+      require(borrowRequest.lend(amount));
+
+      users[msg.sender].borrowRequestsLender.push(_borrowRequest);
+    }
+
+    function getUserLendsToBorrowRequests() public view returns (address[] memory) {
+      return users[msg.sender].borrowRequestsLender;
     }
 }
