@@ -287,7 +287,8 @@ contract BorrowRequest is Ownable {
   function requestInterest() public isActive onlyLender canAskForInterest {
 
     // Calculate the amount to be returned to lender.
-    uint lenderReturnAmount = lendersInvestedAmount[msg.sender].mul(interest.div(requestedAmount.div(100)).add(100)).div(100);
+    //uint lenderReturnAmount = lendersInvestedAmount[msg.sender].mul(interest.div(requestedAmount.div(100)).add(100)).div(100);
+    uint lenderReturnAmount = lendersInvestedAmount[msg.sender].mul(returnAmount).div(requestedAmount);
 
     uint balance = getBalance();
 
