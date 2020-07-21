@@ -18,7 +18,7 @@ contract PeerToPeerLending is Ownable {
     /** @dev State variables */
 
     // User structure
-    struct User {        
+    struct User {
       address[] borrowRequests;
       address[] lendOffers;
       address[] borrowRequestsLender;
