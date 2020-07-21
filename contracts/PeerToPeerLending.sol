@@ -2,9 +2,10 @@ pragma solidity ^0.6.0;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import './BorrowRequest.sol';
 import './LendOffer.sol';
+import './Oracle.sol';
 
 /** @title Peer to peer lending contract.
   * Inherits the Ownable contracts.
@@ -30,10 +31,16 @@ contract PeerToPeerLending is Ownable {
     address[] public borrowRequests;
     address[] public lendOffers;
 
+    address public oracleAddress;
+
     /** @dev Events */
     event LogBorrowRequestCreated(address indexed _address, address indexed _borrower, uint indexed timestamp);    
 
     event LogLendOffersRequestCreated(address indexed _address, address indexed _lender, uint indexed timestamp);
+
+    constructor(address _oracleAddress) public {
+      oracleAddress = _oracleAddress;
+    }
 
 
     /** @dev Borrow Request application function.
@@ -51,11 +58,21 @@ contract PeerToPeerLending is Ownable {
 
       require(collateralAsset != requestedAsset, "Collateral asset and requested asset the same");
 
-      IERC20 collateralToken = IERC20(collateralAsset);
+      ERC20 collateralToken = ERC20(collateralAsset);
 
       require(collateralToken.balanceOf(msg.sender) >= collateralAmount, "Balance of collateral asset is not enough");
 
       require(collateralToken.allowance(msg.sender, address(this)) >= collateralAmount, "Missing allowance");
+
+      Oracle oracle = Oracle(oracleAddress);
+
+      address _requestedAsset = requestedAsset;
+
+      require(
+        oracle.getPrice(collateralAsset).mul(collateralAmount).div(uint(10) ** collateralToken.decimals()) >= 
+        oracle.getPrice(_requestedAsset).mul(requestedAmount).div(uint(10) ** ERC20(_requestedAsset).decimals()).mul(2), 
+        "Not enough collateral"
+      );
 
       // Create a new Borrow Request contract with the given parameters.
       BorrowRequest borrowRequest = new BorrowRequest(

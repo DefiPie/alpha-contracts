@@ -259,7 +259,7 @@ contract BorrowRequest is Ownable {
   /** @dev Repayment function.
     * Allows borrower to make repayment to the contract.
     */
-  function repay() public onlyBorrower canRepay payable {
+  function repay() public onlyBorrower canRepay {
     IERC20 requestedToken = IERC20(requestedAsset);
 
     require(requestedToken.allowance(msg.sender, address(this)) >= returnAmount, "Missing allowance");

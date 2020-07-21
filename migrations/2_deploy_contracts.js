@@ -6,10 +6,13 @@ const USDT = artifacts.require("../contracts/USDT.sol");
 const TUSD = artifacts.require("../contracts/TUSD.sol");
 const PAX = artifacts.require("../contracts/PAX.sol");
 const ShitCoin = artifacts.require("../contracts/ShitCoin.sol");
+const Oracle = artifacts.require("../contracts/Oracle.sol");
 
 module.exports = (deployer, network, accounts) => {
    //deploy
-    deployer.deploy(PeerToPeerLending);
+    deployer.deploy(Oracle).then(() => {
+    	return deployer.deploy(PeerToPeerLending, Oracle.address);
+    });    
     deployer.deploy(USDC);
     deployer.deploy(TUSD);
     deployer.deploy(PAX);
