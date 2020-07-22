@@ -7,6 +7,8 @@ const TUSD = artifacts.require("../contracts/TUSD.sol");
 const PAX = artifacts.require("../contracts/PAX.sol");
 const ShitCoin = artifacts.require("../contracts/ShitCoin.sol");
 const Oracle = artifacts.require("../contracts/Oracle.sol");
+const DefipieTimelock = artifacts.require("../contracts/DefipieTimelock.sol");
+const DefipieToken = artifacts.require("../contracts/DefipieToken.sol");
 
 module.exports = (deployer, network, accounts) => {
    //deploy
@@ -16,9 +18,12 @@ module.exports = (deployer, network, accounts) => {
     deployer.deploy(USDC);
     deployer.deploy(TUSD);
     deployer.deploy(PAX);
-    deployer.deploy(ShitCoin);
+    deployer.deploy(ShitCoin);    
+    deployer.deploy(DefipieToken).then(() => {
+      return deployer.deploy(DefipieTimelock, DefipieToken.address);
+    });
 
     deployer.deploy(USDT).then(instance => {
-	    instance.transfer(accounts[1], 10000000000, {from: accounts[0]});
-	  });
+      instance.transfer(accounts[1], 10000000000, {from: accounts[0]});
+    });
 };

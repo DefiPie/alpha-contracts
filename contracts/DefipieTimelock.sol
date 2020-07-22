@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.6.0;
+pragma experimental ABIEncoderV2;
 
-import "@openzeppelin/contracts/token/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 contract DefipieTimelock {
   using SafeERC20 for IERC20;
@@ -11,6 +12,7 @@ contract DefipieTimelock {
   IERC20 private _token;
 
   struct LockBox {
+    uint id;
     address beneficiary;
     uint amount;
     uint releaseTime;
@@ -19,7 +21,7 @@ contract DefipieTimelock {
   LockBox[] public lockBox; // This could be a mapping by address, but these numbered lockBoxes support possibility of multiple tranches per address
 
   event LogLockBoxDeposit(address sender, uint amount, uint releaseTime);   
-  event LogLockBoxWithdrawal(address receiver, uint amount);
+  event LogLockBoxWithdrawal(address sender, address beneficiary, uint id, uint amount);
 
   constructor(address tokenContract) public {
     _token = IERC20(tokenContract);
@@ -32,9 +34,14 @@ contract DefipieTimelock {
     return _token;
   }
 
+  function getAllBoxes() external view returns (LockBox[] memory) {
+    return lockBox;
+  }
+
   function deposit(address beneficiary, uint amount, uint releaseTime) public returns(bool success) {
-    require(token.transferFrom(msg.sender, address(this), amount));
+    _token.safeTransferFrom(msg.sender, address(this), amount);
     LockBox memory l;
+    l.id = lockBox.length;
     l.beneficiary = beneficiary;
     l.amount = amount;
     l.releaseTime = releaseTime;
@@ -43,16 +50,15 @@ contract DefipieTimelock {
     return true;
   }
 
-  function withdraw(uint lockBoxNumber) public returns(bool success) {
-    LockBox storage l = lockBox[lockBoxNumber];
-    require(l.beneficiary == msg.sender);
-    require(l.releaseTime <= now);
-    require(l.amount > 0);
+  function withdraw(uint id) public returns(bool success) {
+    LockBox storage l = lockBox[id];
+    require(l.releaseTime <= now, "Unlock time has not come yet");
+    require(l.amount > 0, "This box is empty");
     uint amount = l.amount;
     l.amount = 0;
-    emit LogLockBoxWithdrawal(msg.sender, amount);
-    require(token.transfer(msg.sender, amount));
+    emit LogLockBoxWithdrawal(msg.sender, l.beneficiary, id, amount);
+    _token.safeTransfer(l.beneficiary, amount);
     return true;
-  }    
+  }
 
 }
