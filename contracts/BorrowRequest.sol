@@ -29,9 +29,6 @@ contract BorrowRequest is Ownable {
   // Amount that will be returned by the borrower (including the interest).
   uint returnAmount;
 
-  // Currently repaid amount.
-  uint repaidAmount;
-
   // Credit interest.
   uint interest;
 
@@ -40,12 +37,6 @@ contract BorrowRequest is Ownable {
 
   // When the loan will repaid
   uint returnDate;
-
-  // The timestamp of last repayment date.
-  uint lastRepaymentDate;
-
-  // Active state of the credit.
-  bool active = true;
 
   /** Stages that every credit contract gets trough.
     *   pendingCollateral - Collateral not paid
@@ -63,16 +54,12 @@ contract BorrowRequest is Ownable {
   // Storing the invested amount by each lender.
   mapping(address => uint) lendersInvestedAmount;
 
-  // Store the lenders count, later needed for revoke vote.
-  uint lendersCount = 0;
-
   /** @dev Events
   *
   */
   event LogBorrowRequestInitialized(address indexed _address, uint indexed timestamp);  
   event LogBorrowRequestSetCollateral(address indexed _address, uint indexed timestamp);
   event LogBorrowRequestStateChanged(State indexed state, uint indexed timestamp);
-  event LogBorrowRequestStateActiveChanged(bool indexed active, uint indexed timestamp);
   event LogLenderInvestment(address indexed _address, uint indexed _amount, uint indexed timestamp);
   event LogBorrowerWithdrawal(address indexed _address, uint indexed _amount, uint indexed timestamp);
   event LogBorrowerRepayment(address indexed _address, uint indexed _amount, uint indexed timestamp);
@@ -102,7 +89,7 @@ contract BorrowRequest is Ownable {
   }
 
   modifier isActive() {
-    require(active == true);
+    require(state != State.finished);
     _;
   }
 
@@ -167,21 +154,23 @@ contract BorrowRequest is Ownable {
     emit LogBorrowRequestInitialized(borrower, block.timestamp);
   }
 
-  function setCollateral(address _collateralAsset, uint _collateralAmount) public isPendingCollateral onlyOwner {
+  function setCollateral(address _collateralAsset, uint _collateralAmount) public isPendingCollateral onlyOwner returns(bool) {
     collateralAsset = _collateralAsset;
     collateralAmount = _collateralAmount;
     state = State.pendingLends;
 
     emit LogBorrowRequestSetCollateral(tx.origin, block.timestamp);
+
+    return true;
   }
 
-  function getBalance() public view isSetCollateral returns(uint) {
+  function getBalance() public view returns(uint) {
     IERC20 requestedToken = IERC20(requestedAsset);
 
     return requestedToken.balanceOf(address(this));
   }
 
-  function getInfo() public view returns (address, address, uint, address, uint, uint, uint, uint, uint, uint, bool, State, uint) {
+  function getInfo() public view returns (address, address, uint, address, uint, uint, uint, uint, uint, State, uint) {
     return (
       borrower,
       collateralAsset,
@@ -189,11 +178,9 @@ contract BorrowRequest is Ownable {
       requestedAsset,
       requestedAmount,
       returnAmount,
-      repaidAmount,
       interest,
       createDate,
       returnDate,
-      active,
       state,
       getBalance()
     );
@@ -223,7 +210,6 @@ contract BorrowRequest is Ownable {
     }
 
     lenders[tx.origin] = true;
-    lendersCount++;
     lendersInvestedAmount[tx.origin] = lendersInvestedAmount[tx.origin].add(amount);
 
     LogLenderInvestment(tx.origin, amount, block.timestamp);
@@ -238,7 +224,7 @@ contract BorrowRequest is Ownable {
     * It can only be executed once.
     * Transfers the gathered amount to the borrower.
     */
-  function withdraw() public isActive onlyBorrower canWithdraw {
+  function withdraw() public isActive onlyBorrower canWithdraw returns (bool) {
     // Set the state to repayment so we can avoid reentrancy.
     state = State.repayment;
 
@@ -254,12 +240,14 @@ contract BorrowRequest is Ownable {
 
     // Transfer the gathered amount to the credit borrower.
     requestedToken.transfer(borrower, balance);
+
+    return true;
   }
 
   /** @dev Repayment function.
     * Allows borrower to make repayment to the contract.
     */
-  function repay() public onlyBorrower canRepay {
+  function repay() public onlyBorrower canRepay returns (bool) {
     IERC20 requestedToken = IERC20(requestedAsset);
 
     require(requestedToken.allowance(msg.sender, address(this)) >= returnAmount, "Missing allowance");
@@ -275,6 +263,8 @@ contract BorrowRequest is Ownable {
 
     // Set the credit state to "returning interests".
     state = State.interestReturns;
+
+    return true;
   }
 
   /** @dev Request interest function.
@@ -284,7 +274,7 @@ contract BorrowRequest is Ownable {
     * It can only be executed once.
     * Transfers the lended amount + interest to the lender.
     */
-  function requestInterest() public isActive onlyLender canAskForInterest {
+  function requestInterest() public isActive onlyLender canAskForInterest returns (bool) {
 
     // Calculate the amount to be returned to lender.
     //uint lenderReturnAmount = lendersInvestedAmount[msg.sender].mul(interest.div(requestedAmount.div(100)).add(100)).div(100);
@@ -294,6 +284,8 @@ contract BorrowRequest is Ownable {
 
     // Assert the contract has enough balance to pay the lender.
     assert(balance >= lenderReturnAmount);
+
+    lendersInvestedAmount[msg.sender] = 0;
 
     // Transfer the return amount with interest to the lender.
     IERC20 requestedToken = IERC20(requestedAsset);
@@ -305,19 +297,14 @@ contract BorrowRequest is Ownable {
 
     // Check if the contract balance is drawned.
     if (balance.sub(lenderReturnAmount) == 0) {
-
-        // Set the active state to false.
-        active = false;
-
-        // Log active state change.
-        LogBorrowRequestStateActiveChanged(active, block.timestamp);
-
         // Set the contract stage to expired e.g. its lifespan is over.
         state = State.finished;
 
         // Log state change.
         LogBorrowRequestStateChanged(state, block.timestamp);
     }
+
+    return true;
   }
 
 }

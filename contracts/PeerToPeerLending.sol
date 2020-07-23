@@ -2,10 +2,9 @@ pragma solidity ^0.6.0;
 
 import "@openzeppelin/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import './BorrowRequest.sol';
-import './LendOffer.sol';
-import './Oracle.sol';
+import "./IERC20Detailed.sol";
+import './Credit.sol';
+import './IOracle.sol';
 
 /** @title Peer to peer lending contract.
   * Inherits the Ownable contracts.
@@ -34,9 +33,7 @@ contract PeerToPeerLending is Ownable {
     address public oracleAddress;
 
     /** @dev Events */
-    event LogBorrowRequestCreated(address indexed _address, address indexed _borrower, uint indexed timestamp);    
-
-    event LogLendOffersRequestCreated(address indexed _address, address indexed _lender, uint indexed timestamp);
+    event LogCreditCreated(address indexed _address, Credit.AppType appType, address indexed _borrower, uint indexed timestamp);        
 
     constructor(address _oracleAddress) public {
       oracleAddress = _oracleAddress;
@@ -48,55 +45,53 @@ contract PeerToPeerLending is Ownable {
       * The owner of the new contract is the present contract.
       */
     function createBorrowRequest(
-      address requestedAsset, 
-      uint requestedAmount, 
+      address creditAsset, 
+      uint creditAmount, 
       uint interest, 
       uint returnDate, 
       address collateralAsset, 
       uint collateralAmount
     ) public returns(address) {
 
-      require(collateralAsset != requestedAsset, "Collateral asset and requested asset the same");
+      require(collateralAsset != creditAsset, "Collateral asset and requested asset the same");
 
-      ERC20 collateralToken = ERC20(collateralAsset);
+      IERC20Detailed collateralToken = IERC20Detailed(collateralAsset);
 
-      require(collateralToken.balanceOf(msg.sender) >= collateralAmount, "Balance of collateral asset is not enough");
+      IOracle oracle = IOracle(oracleAddress);
 
-      require(collateralToken.allowance(msg.sender, address(this)) >= collateralAmount, "Missing allowance");
-
-      Oracle oracle = Oracle(oracleAddress);
-
-      address _requestedAsset = requestedAsset;
+      address _creditAsset = creditAsset;
 
       require(
         oracle.getPrice(collateralAsset).mul(collateralAmount).div(uint(10) ** collateralToken.decimals()) >= 
-        oracle.getPrice(_requestedAsset).mul(requestedAmount).div(uint(10) ** ERC20(_requestedAsset).decimals()).mul(2), 
+        oracle.getPrice(_creditAsset).mul(creditAmount).div(uint(10) ** IERC20Detailed(_creditAsset).decimals()).mul(2), 
         "Not enough collateral"
       );
 
-      // Create a new Borrow Request contract with the given parameters.
-      BorrowRequest borrowRequest = new BorrowRequest(
-        requestedAsset,
-        requestedAmount,
+      require(collateralToken.transferFrom(msg.sender, address(this), collateralAmount), "The collateral asset is not transferred");
+      
+      Credit credit = new Credit(
+        Credit.AppType.borrowRequest,
+        creditAsset,
+        creditAmount,
         interest,
         returnDate
       );
 
-      require(collateralToken.transferFrom(msg.sender, address(borrowRequest), collateralAmount), "The collateral asset is not transferred");
+      collateralToken.transfer(address(credit), collateralAmount);
       
-      borrowRequest.setCollateral(collateralAsset, collateralAmount);
+      credit.setCollateral(collateralAsset, collateralAmount);
 
       // Add the borrow request contract to our list with contracts.
-      borrowRequests.push(address(borrowRequest));
+      borrowRequests.push(address(credit));
 
       // Add the borrow request to the user's profile.
-      users[msg.sender].borrowRequests.push(address(borrowRequest));
+      users[msg.sender].borrowRequests.push(address(credit));
 
       // Log the borrow request creation event.
-      emit LogBorrowRequestCreated(address(borrowRequest), msg.sender, block.timestamp);
+      emit LogCreditCreated(address(credit), Credit.AppType.borrowRequest, msg.sender, block.timestamp);
 
       // Return the address of the newly created borrow request contract.
-      return address(borrowRequest);
+      return address(credit);
     }
 
     /** @dev Lend Offer application function.
@@ -104,30 +99,39 @@ contract PeerToPeerLending is Ownable {
       * The owner of the new contract is the present contract.
       */
     function createLendOffer(
-      address offeredAsset,
-      uint offeredAmount,
+      address creditAsset,
+      uint creditAmount,
       uint interest,
       uint returnDate
     ) public returns(address) {
+      IERC20Detailed creditToken = IERC20Detailed(creditAsset);
+
+      require(creditToken.transferFrom(msg.sender, address(this), creditAmount), "The offered asset is not transferred");
+
       // Create a new Lend Offer contract with the given parameters.
-      LendOffer lendOffer = new LendOffer(
-        offeredAsset,
-        offeredAmount,
+      Credit credit = new Credit(
+        Credit.AppType.lendOffer,
+        creditAsset,
+        creditAmount,
         interest,
         returnDate
       );
 
+      creditToken.transfer(address(credit), creditAmount);
+
+      credit.setAsset();
+
       // Add the Lend Offer contract to our list with contracts.
-      lendOffers.push(address(lendOffer));
+      lendOffers.push(address(credit));
 
       // Add the Lend Offer to the user's profile.
-      users[msg.sender].lendOffers.push(address(lendOffer));
+      users[msg.sender].lendOffers.push(address(credit));
 
       // Log the Lend Offer creation event.
-      emit LogBorrowRequestCreated(address(lendOffer), msg.sender, block.timestamp);
+      emit LogCreditCreated(address(credit), Credit.AppType.lendOffer, msg.sender, block.timestamp);
 
       // Return the address of the newly created Lend Offer contract.
-      return address(lendOffer);
+      return address(credit);
     }
 
     /** @dev Get the list with all borrow requests.
@@ -158,15 +162,38 @@ contract PeerToPeerLending is Ownable {
       return users[msg.sender].lendOffers;
     }
 
-    function lendToBorrowRequest(address _borrowRequest, uint amount) public {
-      BorrowRequest borrowRequest = BorrowRequest(_borrowRequest);
+    function lendToBorrowRequest(address _borrowRequest) public {
+      Credit credit = Credit(_borrowRequest);
 
-      require(borrowRequest.lend(amount));
+      require(credit.lend(), "lendToBorrowRequest error");
 
       users[msg.sender].borrowRequestsLender.push(_borrowRequest);
     }
 
+    function borrowToLendOffer(address _lendOffer, address collateralAsset, uint collateralAmount) public {
+      IOracle oracle = IOracle(oracleAddress);
+      IERC20Detailed collateralToken = IERC20Detailed(collateralAsset);
+      Credit credit = Credit(_lendOffer);
+
+      address creditAsset = credit.getCreditAsset();
+      uint creditAmount = credit.getCreditAmount();
+
+      require(
+        oracle.getPrice(collateralAsset).mul(collateralAmount).div(uint(10) ** collateralToken.decimals()) >= 
+        oracle.getPrice(creditAsset).mul(creditAmount).div(uint(10) ** IERC20Detailed(creditAsset).decimals()).mul(2),
+        "Not enough collateral"
+      );
+
+      require(credit.borrow(collateralAsset, collateralAmount));
+
+      users[msg.sender].lendOffersBorrower.push(_lendOffer);
+    }
+
     function getUserLendsToBorrowRequests() public view returns (address[] memory) {
       return users[msg.sender].borrowRequestsLender;
+    }
+
+    function getUserBorrowToLendOffers() public view returns (address[] memory) {
+      return users[msg.sender].lendOffersBorrower;
     }
 }

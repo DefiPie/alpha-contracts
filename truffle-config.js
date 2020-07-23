@@ -11,4 +11,7 @@ module.exports = {
       version: "0.6.2",
     },
   },
+  plugins: [
+    'truffle-contract-size'
+  ]
 };
