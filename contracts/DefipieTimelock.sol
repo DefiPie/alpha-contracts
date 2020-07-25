@@ -14,8 +14,9 @@ contract DefipieTimelock {
   struct LockBox {
     uint id;
     address beneficiary;
-    uint amount;
     uint releaseTime;
+    uint totalAmount;
+    uint monthlyAmount;
   }
 
   LockBox[] public lockBox; // This could be a mapping by address, but these numbered lockBoxes support possibility of multiple tranches per address
@@ -38,26 +39,37 @@ contract DefipieTimelock {
     return lockBox;
   }
 
-  function deposit(address beneficiary, uint amount, uint releaseTime) public returns(bool success) {
-    _token.safeTransferFrom(msg.sender, address(this), amount);
+  function deposit(address beneficiary, uint releaseTime,  uint totalAmount, uint monthlyAmount) public returns(bool success) {
+    _token.safeTransferFrom(msg.sender, address(this), totalAmount);
     LockBox memory l;
     l.id = lockBox.length;
     l.beneficiary = beneficiary;
-    l.amount = amount;
     l.releaseTime = releaseTime;
+    l.totalAmount = totalAmount;
+    l.monthlyAmount = monthlyAmount;
     lockBox.push(l);
-    emit LogLockBoxDeposit(msg.sender, amount, releaseTime);
+    emit LogLockBoxDeposit(msg.sender, totalAmount, releaseTime);
     return true;
   }
 
   function withdraw(uint id) public returns(bool success) {
     LockBox storage l = lockBox[id];
     require(l.releaseTime <= now, "Unlock time has not come yet");
-    require(l.amount > 0, "This box is empty");
-    uint amount = l.amount;
-    l.amount = 0;
-    emit LogLockBoxWithdrawal(msg.sender, l.beneficiary, id, amount);
+    require(l.totalAmount > 0, "This box is empty");
+
+    uint amount = l.totalAmount;
+    if (l.monthlyAmount > 0) {      
+      amount = l.monthlyAmount > l.totalAmount ? l.totalAmount : l.monthlyAmount;
+      l.totalAmount -= amount;
+      l.releaseTime += 30*24*60*60;
+    } else {      
+      l.totalAmount = 0;
+    }
+    
     _token.safeTransfer(l.beneficiary, amount);
+
+    emit LogLockBoxWithdrawal(msg.sender, l.beneficiary, id, amount);
+
     return true;
   }
 

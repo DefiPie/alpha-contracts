@@ -3,7 +3,8 @@ module.exports = {
     development: {
       host: "localhost",
       port: 7545,
-      network_id: "*"
+      network_id: "*",
+      gasPrice: 130000000000
     }
   },
   compilers: {
@@ -13,5 +14,5 @@ module.exports = {
   },
   plugins: [
     'truffle-contract-size'
-  ]
+  ],
 };
