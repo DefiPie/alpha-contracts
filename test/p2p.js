@@ -11,6 +11,8 @@ contract("PeerToPeerLending", async accounts => {
     let testcoinInstance = await testcoin.deployed();
 
     // ---- Create borrow request
+    await usdtInstance.mint({from: accounts[1]});
+    
     let beforeBalanceAccount1 = await usdtInstance.balanceOf(accounts[1]);
 
     await usdtInstance.approve(p2pInstance.address, 700000000, {from: accounts[1]});
@@ -50,7 +52,8 @@ contract("PeerToPeerLending", async accounts => {
 		// ---- repay
 		let beforeUsdtBalanceAccount1 = await usdtInstance.balanceOf(accounts[1]);
 
-		await testcoinInstance.transfer(accounts[1], web3.utils.toWei('10000'), {from:accounts[0]});
+		await testcoinInstance.mint({from: accounts[0]});
+    await testcoinInstance.transfer(accounts[1], web3.utils.toWei('10000'), {from:accounts[0]});
 		await testcoinInstance.approve(account1BorrowRequests[0], web3.utils.toWei('110000'), {from: accounts[1]});
 		await creditInstance.repay({from: accounts[1]});
 
