@@ -1,7 +1,7 @@
 /* global BigInt */
 const p2p = artifacts.require("PeerToPeerLending");
 const usdt = artifacts.require("USDT");
-const testcoin = artifacts.require("TestCoin");
+const testcoin = artifacts.require("TestCoin1");
 const credit = artifacts.require("Credit");
 
 contract("PeerToPeerLending", async accounts => {

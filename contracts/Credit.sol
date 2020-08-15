@@ -120,18 +120,18 @@ contract Credit is Ownable {
 
   function getInfo() public view returns (address, address, address, uint, address, uint, uint, uint, uint, State, AppType, uint) {
     return (
-      borrower,
-      lender,
-      collateralAsset,
-      collateralAmount,
-      creditAsset,
-      creditAmount,
-      returnAmount,      
-      createDate,
-      returnDate,
-      state,
-      appType,
-      getBalance()
+      borrower,         // 0
+      lender,           // 1
+      collateralAsset,  // 2
+      collateralAmount, // 3
+      creditAsset,      // 4
+      creditAmount,     // 5
+      returnAmount,     // 6
+      createDate,       // 7
+      returnDate,       // 8
+      state,            // 9
+      appType,          // 10
+      getBalance()      // 11
     );
   }
 

@@ -2,8 +2,8 @@ pragma solidity ^0.6.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-contract TestCoin1 is ERC20 {
-  constructor() public ERC20("Test Coin 1", "TC1") {
+contract TestCoin3 is ERC20 {
+  constructor() public ERC20("Test Coin 3", "TC3") {
   }
 
   function mint() public {

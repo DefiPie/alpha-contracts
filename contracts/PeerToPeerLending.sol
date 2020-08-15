@@ -39,6 +39,9 @@ contract PeerToPeerLending is Ownable {
       oracleAddress = _oracleAddress;
     }
 
+    function setOracle(address _oracleAddress) public onlyOwner returns(bool) {
+      oracleAddress = _oracleAddress;
+    }
 
     /** @dev Borrow Request application function.
       * The function publishesh another contract which is the Borrow Request contract.
